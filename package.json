@@ -1,0 +1,17 @@
+{
+  "name": "skillsphere-backend",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^2.0.16",
+    "@google-cloud/firestore": "^7.11.5",
+    "@google/generative-ai": "^0.24.1",
+    "ai": "^5.0.51",
+    "firebase-admin": "^13.5.0",
+    "hono": "^4.9.8"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

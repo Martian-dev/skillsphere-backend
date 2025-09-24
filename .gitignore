@@ -1,0 +1,5 @@
+# deps
+node_modules/
+
+.env
+firebase_service_account.json
