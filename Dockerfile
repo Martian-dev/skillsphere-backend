@@ -18,4 +18,4 @@ EXPOSE 3000
 ENV PORT=3000
 
 # Start the app
-CMD ["bun", "run", "dev"]
+CMD ["bun", "run", "src/index.ts"]

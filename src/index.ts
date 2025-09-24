@@ -7,8 +7,10 @@ import { serve } from "bun";
 import topicsRoutes from "./routes/topics";
 import lessonsRoutes from "./routes/lessons";
 import generateRoutes from "./routes/generateLessons";
+import { cors } from "hono/cors";
 
 const app = new Hono<{ Variables: { user: DecodedIdToken } }>();
+app.use(cors());
 // const firestore = new Firestore();
 // const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
