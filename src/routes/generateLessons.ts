@@ -12,7 +12,7 @@ generateRoutes.post("/", async (c) => {
     return c.json({ error: "topics[] required" }, 400);
   }
 
-  const model = google("gemini-1.5-pro");
+  const model = google("gemini-2.5-flash");
   const results: Record<string, any[]> = {};
 
   for (const topic of topics) {
@@ -31,7 +31,31 @@ generateRoutes.post("/", async (c) => {
     }
 
     // UPDATED: The new, more efficient prompt
-    const prompt = `You are an expert instructional designer. For the topic "${topic}", generate a JSON array of 5 unique, beginner-level lessons. Your response MUST be a single, raw JSON array. Do not include any text, comments, or markdown fences. Each object in the array must have this structure: { "title": "...", "xp": 100, "estimatedMinutes": 5, "difficulty": "beginner", "tags": [], "content": [], "assessment": { "passingScore": 80, "questions": [{ "id": "q1", "questionText": "...", "quizType": "multiple-choice", "tags": [], "options": [], "correctAnswerId": "...", "explanation": "..." }] } }`;
+    const prompt = `You are an expert instructional designer. For the topic "${topic}", generate a JSON array of 3 unique, beginner-level lessons. Respond ONLY with a raw JSON array.
+
+Each object in the array must match this schema:
+{
+  "title": "string",
+  "xp": 100,
+  "estimatedMinutes": 5,
+  "difficulty": "beginner",
+  "tags": "string[]",
+  "content": [{ "type": "string", "text": "string" }],
+  "assessment": {
+    "passingScore": 80,
+    "questions": [
+      {
+        "id": "string (e.g., 'q1')",
+        "questionText": "string",
+        "quizType": "multiple-choice",
+        "tags": "string[]",
+        "options": [{ "id": "string", "text": "string" }],
+        "correctAnswerId": "string",
+        "explanation": "string"
+      }
+    ]
+  }
+}`;
 
     try {
       // UPDATED: A single API call per topic
@@ -43,11 +67,13 @@ generateRoutes.post("/", async (c) => {
       const generatedLessons = [];
 
       // UPDATED: Loop through the array of lessons returned by the AI
-      for (const lesson of lessons) {
-        const lessonRef = db.collection("lessons").doc(); // Create a new document reference
+      for (const [index, lesson] of lessons.entries()) {
+        // Use .entries() to get the index
+        const lessonRef = db.collection("lessons").doc();
         batch.set(lessonRef, {
           ...lesson,
           topicId,
+          order: index + 1, // <-- ADD THIS LINE (e.g., 1, 2, 3, 4, 5)
           createdAt: new Date(),
         });
         generatedLessons.push({ id: lessonRef.id, ...lesson });

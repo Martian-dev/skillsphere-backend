@@ -17,7 +17,7 @@ lessonsRoutes.get("/:topicId", async (c) => {
     const lessonsSnapshot = await db
       .collection("lessons")
       .where("topicId", "==", topicId)
-      // .orderBy("createdAt") // Consider ordering lessons by creation time or an 'order' field
+      .orderBy("order") // Consider ordering lessons by creation time or an 'order' field
       .get();
 
     if (lessonsSnapshot.empty) {
@@ -28,8 +28,23 @@ lessonsRoutes.get("/:topicId", async (c) => {
     const lessons = lessonsSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-    }));
-    return c.json(lessons);
+    })) as Array<
+      { id: string; assessment?: { questions?: any[] } } & Record<string, any>
+    >;
+    const publicLessons = lessons.map((lesson) => {
+      if (lesson.assessment && lesson.assessment.questions) {
+        lesson.assessment.questions = lesson.assessment.questions.map((q) => ({
+          id: q.id,
+          questionText: q.questionText,
+          quizType: q.quizType,
+          tags: q.tags,
+          options: q.options,
+          // OMIT 'correctAnswerId' and 'explanation'
+        }));
+      }
+      return lesson;
+    });
+    return c.json(publicLessons);
   } catch (error) {
     console.error(`Failed to fetch lessons for topic ${topicId}:`, error);
     return c.json(

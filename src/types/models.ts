@@ -23,6 +23,7 @@ export interface Lesson {
   tags: string[];
   content: { type: string; text: string }[];
   createdAt: Timestamp;
+  order: number;
   assessment: {
     passingScore: number; // e.g., 80 for 80%
     questions: Question[];

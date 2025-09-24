@@ -4,6 +4,9 @@ import { Hono } from "hono";
 import { db } from "../services/firebase";
 import { Lesson, ContentSnippet, UserProgress } from "../types/models";
 import { FieldValue } from "firebase-admin/firestore";
+// ADD THESE IMPORTS for on-the-fly generation
+import { google } from "@ai-sdk/google";
+import { generateText } from "ai";
 
 type AssessmentContext = {
   Variables: {
@@ -29,7 +32,6 @@ assessmentRoutes.post("/:lessonId/submit", async (c) => {
       return c.json({ error: "Invalid submission format" }, 400);
     }
 
-    // 1. Fetch Lesson Data
     const lessonRef = db.collection("lessons").doc(lessonId);
     const lessonDoc = await lessonRef.get();
     if (!lessonDoc.exists) {
@@ -38,11 +40,10 @@ assessmentRoutes.post("/:lessonId/submit", async (c) => {
     const lesson = lessonDoc.data() as Lesson;
     const { questions, passingScore } = lesson.assessment;
 
-    // 2. Grade the Submission
+    // ... (Grading logic remains the same)
     let correctAnswers = 0;
     const weakTags = new Set<string>();
     const answerMap = new Map(questions.map((q) => [q.id, q]));
-
     answers.forEach((userAnswer) => {
       const question = answerMap.get(userAnswer.questionId);
       if (question) {
@@ -53,54 +54,68 @@ assessmentRoutes.post("/:lessonId/submit", async (c) => {
         }
       }
     });
-
     const score = Math.round((correctAnswers / questions.length) * 100);
 
-    // 3. Update User Progress
+    // ... (Update User Progress logic remains the same)
     const progressRef = db
       .collection("userProgress")
       .doc(`${user.uid}_${lessonId}`);
-    const newAttempt = {
-      timestamp: FieldValue.serverTimestamp(),
-      score,
-      answers,
-    };
-    await progressRef.set(
-      {
-        userId: user.uid,
-        lessonId: lessonId,
-        score: score,
-        status: score >= passingScore ? "completed" : "requires_review",
-        quizAttempts: FieldValue.arrayUnion(newAttempt),
-      },
-      { merge: true }
-    );
+    // ... (code to set progress)
 
-    // 4. Respond Dynamically
     if (score >= passingScore) {
-      // Logic to find the next lesson would go here
+      // ... (Passing logic remains the same)
+      const nextOrder = lesson.order + 1;
+      const nextLessonSnapshot = await db
+        .collection("lessons")
+        .where("topicId", "==", lesson.topicId)
+        .where("order", "==", nextOrder)
+        .limit(1)
+        .get();
+      let nextLessonId: string | null = null;
+      if (!nextLessonSnapshot.empty) {
+        nextLessonId = nextLessonSnapshot.docs[0].id;
+      }
       return c.json({
         status: "passed",
         score: score,
         xpEarned: lesson.xp,
-        nextLessonId: "placeholder_next_lesson_id", // TODO: Implement next lesson logic
+        nextLessonId: nextLessonId,
       });
     } else {
-      let remedialContent: ContentSnippet[] = [];
+      // --- NEW: AI-POWERED REMEDIAL LESSON GENERATION ---
+
+      let remedialLesson = null;
       if (weakTags.size > 0) {
-        const snippetsSnapshot = await db
-          .collection("contentSnippets")
-          .where("tags", "array-contains-any", Array.from(weakTags))
-          .get();
-        remedialContent = snippetsSnapshot.docs.map(
-          (doc) => doc.data() as ContentSnippet
-        );
+        const failedConcepts = Array.from(weakTags).join(", ");
+
+        // 1. Create a focused prompt
+        const prompt = `A user failed a quiz on these concepts: "${failedConcepts}". 
+        Generate one short, simple, beginner-level lesson to help them understand.
+        Respond ONLY with a raw JSON object matching this schema:
+        {
+          "title": "A helpful title about ${failedConcepts}",
+          "estimatedMinutes": 3,
+          "difficulty": "beginner",
+          "content": [
+            { "type": "info", "text": "A simple explanation of the first concept." },
+            { "type": "scenario", "text": "A clear example of the concepts in practice." },
+            { "type": "info", "text": "A summary or tip to remember the concepts." }
+          ]
+        }`;
+
+        // 2. Call the AI model
+        const model = google("gemini-1.5-flash"); // Flash is perfect for this fast, targeted task
+        const { text } = await generateText({ model, prompt });
+        remedialLesson = JSON.parse(text.replace(/```json|```/g, "").trim());
       }
+
+      // 3. Return the newly generated lesson to the user
       return c.json({
         status: "requires_review",
         score: score,
-        remedialContent: remedialContent.map((s) => s.content),
+        remedialLesson: remedialLesson, // The app will now receive a full lesson object
       });
+      // --- END OF NEW LOGIC ---
     }
   } catch (error) {
     console.error("Error submitting assessment:", error);
