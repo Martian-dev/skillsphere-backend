@@ -1,28 +1,42 @@
+// src/routes/lessons.ts
+
 import { Hono } from "hono";
 import { db } from "../services/firebase";
 
 const lessonsRoutes = new Hono();
 
-const MAPPINGS = {
-  Finance: "qz86ZeGsFumWUaZg00TU",
-  Politics: "EVPXG2Qn5OJmtD3fOYDb",
-};
-
 // GET /lessons/:topicId → all lessons in a topic
 lessonsRoutes.get("/:topicId", async (c) => {
-  const topicId = c.req.param("topicId");
-  if (!topicId) return c.json({ error: "topicId required" }, 400);
-  if (!Object.keys(MAPPINGS).includes(topicId))
-    return c.json({ error: "invalid topicId" }, 400);
+  const { topicId } = c.req.param();
 
-  const snap = await db
-    .collection("lessons")
-    .where("topicId", "==", MAPPINGS[topicId as keyof typeof MAPPINGS])
-    // .orderBy("order")
-    .get();
+  if (!topicId) {
+    return c.json({ error: "A valid topicId is required" }, 400);
+  }
 
-  const lessons = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  return c.json(lessons);
+  try {
+    const lessonsSnapshot = await db
+      .collection("lessons")
+      .where("topicId", "==", topicId)
+      // .orderBy("createdAt") // Consider ordering lessons by creation time or an 'order' field
+      .get();
+
+    if (lessonsSnapshot.empty) {
+      // It's good practice to handle cases where no lessons are found
+      return c.json([]);
+    }
+
+    const lessons = lessonsSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    return c.json(lessons);
+  } catch (error) {
+    console.error(`Failed to fetch lessons for topic ${topicId}:`, error);
+    return c.json(
+      { error: "Failed to retrieve lessons from the database" },
+      500
+    );
+  }
 });
 
 export default lessonsRoutes;
