@@ -1,11 +1,13 @@
 import { Hono } from "hono";
+import type { DecodedIdToken } from "firebase-admin/auth";
 import { db } from "../services/firebase";
 
-const userProfileRoutes = new Hono();
+const userProfileRoutes = new Hono<{ Variables: { user: DecodedIdToken } }>();
 
 // GET /user-profile/:userId
-userProfileRoutes.get("/:userId", async (c) => {
-  const userId = c.req.param("userId");
+userProfileRoutes.get("/", async (c) => {
+  const user = c.get("user");
+  const userId = user?.uid;
   if (!userId) {
     return c.json({ error: "Missing userId parameter" }, 400);
   }
