@@ -10,6 +10,7 @@ import generateRoutes from "./routes/generateLessons";
 import assessmentRoutes from "./routes/assessments";
 import lessonContentRoutes from "./routes/lessonContent";
 import userProfileRoutes from "./routes/userProfile";
+import leaderboardRoutes from "./routes/leaderboard";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
@@ -38,6 +39,7 @@ app.route("/generate-lessons", generateRoutes);
 app.route("/assessments", assessmentRoutes);
 app.route("/lesson", lessonContentRoutes);
 app.route("/user-profile", userProfileRoutes);
+app.route("/leaderboard", leaderboardRoutes);
 
 serve({
   fetch: app.fetch,
