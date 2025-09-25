@@ -65,7 +65,7 @@ assessmentRoutes.post("/:lessonId/submit", async (c) => {
       .collection("userProgress")
       .doc(`${user.uid}_${lessonId}`);
     const newAttempt = {
-      timestamp: FieldValue.serverTimestamp(),
+      timestamp: new Date(),
       score,
       answers,
     };
