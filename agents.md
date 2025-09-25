@@ -5,6 +5,7 @@
 **SkillSphere Backend** is a TypeScript-based REST API built with Hono framework and Bun runtime, designed to manage educational content including topics and lessons. The application integrates with Firebase Firestore for data persistence and Google's Gemini AI for content generation.
 
 ### Core Purpose
+
 - Manage educational topics and lessons
 - Generate AI-powered lesson content using Google Gemini
 - Provide RESTful API endpoints for frontend applications
@@ -13,16 +14,19 @@
 ## Technology Stack
 
 ### Runtime & Framework
+
 - **Runtime**: Bun (JavaScript/TypeScript runtime)
 - **Framework**: Hono (lightweight web framework)
 - **Language**: TypeScript with strict mode enabled
 
 ### Dependencies
+
 - **Database**: Firebase Firestore (`@google-cloud/firestore`, `firebase-admin`)
 - **AI Integration**: Google Gemini AI (`@google/generative-ai`, `@ai-sdk/google`, `ai`)
 - **Development**: `@types/bun` for TypeScript support
 
 ### Infrastructure
+
 - **Containerization**: Docker support with official Bun image
 - **Port**: 3000 (configurable via PORT environment variable)
 - **Authentication**: Firebase Admin SDK (currently commented out)
@@ -51,18 +55,30 @@ skillsphere-backend/
 ## API Endpoints
 
 ### Topics Management (`/topics`)
+
 - **GET /topics** - Retrieve all topics from Firestore
 - **POST /topics** - Create a new topic (admin functionality)
 
 ### Lessons Management (`/lessons`)
+
 - **GET /lessons/:topicId** - Retrieve lessons for a specific topic
-  - Uses hardcoded mappings: `Finance` → `qz86ZeGsFumWUaZg00TU`, `Politics` → `EVPXG2Qn5OJmtD3fOYDb`
   - Filters lessons by `topicId` field in Firestore
+  - Lessons are ordered by the `order` field
+  - Assessment questions in responses omit `correctAnswerId` and `explanation` for security
+
+### Assessments (`/assessments`)
+
+- **POST /assessments/:lessonId/submit** - Submit answers for a lesson assessment
+  - Grades the submission and updates user progress
+  - If passed, returns next lesson ID
+  - If failed, uses Gemini AI to generate a remedial lesson focused on weak concepts (tags)
+  - Returns the remedial lesson object in the response
 
 ### AI Content Generation (`/generate-lessons`)
+
 - **POST /generate-lessons** - Generate lessons using Google Gemini AI
   - Accepts array of topic names in request body
-  - Generates 5 beginner lessons per topic
+  - Generates 3 beginner lessons per topic (see prompt schema)
   - Automatically creates topic documents if they don't exist
   - Stores generated lessons in Firestore with topic references
 
@@ -74,7 +90,7 @@ Required environment variables (create `.env` file):
 # Firebase Configuration
 FIREBASE_SERVICE_ACCOUNT_KEY={"type":"service_account",...} # JSON string
 
-# Google AI Configuration  
+# Google AI Configuration
 GEMINI_API_KEY=your_gemini_api_key_here
 
 # Optional
@@ -86,11 +102,13 @@ PORT=3000  # Default port if not specified
 ### Getting Started
 
 1. **Install Dependencies**
+
    ```bash
    bun install
    ```
 
 2. **Environment Setup**
+
    - Create `.env` file with required variables
    - Ensure Firebase service account has Firestore permissions
    - Obtain Gemini API key from Google AI Studio
@@ -105,17 +123,20 @@ PORT=3000  # Default port if not specified
 ### Code Standards
 
 #### TypeScript Configuration
+
 - Strict mode enabled
 - JSX support configured for Hono
 - Use proper typing for all functions and variables
 
 #### File Organization
+
 - **Routes**: Place all endpoint handlers in `src/routes/`
 - **Services**: External service integrations in `src/services/`
 - **Middleware**: Authentication and validation logic in `src/middleware/`
 - **Utils**: Helper functions and utilities in `src/utils/`
 
 #### Naming Conventions
+
 - Use camelCase for variables and functions
 - Use PascalCase for types and interfaces
 - Use kebab-case for file names
@@ -124,32 +145,55 @@ PORT=3000  # Default port if not specified
 ### Database Schema
 
 #### Topics Collection
+
 ```typescript
 interface Topic {
-  id: string;        // Auto-generated document ID
-  name: string;      // Topic name (e.g., "Finance", "Politics")
+  id: string; // Auto-generated document ID
+  name: string; // Topic name (e.g., "Finance", "Politics")
   // Additional fields as needed
 }
 ```
 
 #### Lessons Collection
+
 ```typescript
 interface Lesson {
-  id: string;                    // Auto-generated document ID
-  topicId: string;              // Reference to topic document
-  title: string;                // Lesson title
-  xp: number;                   // Experience points
-  estimatedMinutes: number;     // Estimated completion time
-  difficulty: "beginner";       // Difficulty level
-  tags: string[];              // Topic tags
-  content: MicroCard[];        // Array of lesson content
-  createdAt: Date;             // Creation timestamp
+  id: string;
+  topicId: string;
+  title: string;
+  xp: number;
+  estimatedMinutes: number;
+  difficulty: "beginner" | "intermediate" | "advanced";
+  tags: string[];
+  content: { type: string; text: string }[];
+  createdAt: Date;
+  order: number;
+  assessment: {
+    passingScore: number;
+    questions: Question[];
+  };
 }
 
-interface MicroCard {
-  type: "scenario" | "info" | "decision" | "quiz";
-  text: string;  // Max 280 characters
-  // Additional fields based on type
+interface Question {
+  id: string;
+  questionText: string;
+  quizType: "multiple-choice" | "true-false";
+  tags: string[];
+  options: { id: string; text: string }[];
+  correctAnswerId: string;
+  explanation: string;
+}
+
+interface UserProgress {
+  userId: string;
+  lessonId: string;
+  status: "not_started" | "completed" | "requires_review";
+  score: number;
+  quizAttempts: {
+    timestamp: Date;
+    score: number;
+    answers: { questionId: string; selectedOptionId: string }[];
+  }[];
 }
 ```
 
@@ -158,12 +202,15 @@ interface MicroCard {
 ### Adding New Features
 
 #### 1. New API Endpoints
+
 - Create new route files in `src/routes/`
 - Follow existing pattern: export Hono instance
 - Register routes in `src/index.ts`
 - Add proper error handling and validation
+- For assessment endpoints, ensure grading logic and AI remedial lesson generation are implemented as shown in `assessments.ts`
 
 Example:
+
 ```typescript
 // src/routes/newFeature.ts
 import { Hono } from "hono";
@@ -180,36 +227,24 @@ export default newFeatureRoutes;
 ```
 
 #### 2. Database Operations
+
 - Use Firebase Admin SDK through `src/services/firebase.ts`
 - Always handle async operations properly
 - Add proper error handling for Firestore operations
 - Consider data validation before database writes
 
 #### 3. AI Integration
-- Use existing Google Gemini setup in `generateLessons.ts` as reference
-- Configure temperature and other parameters appropriately
+
+- Use Google Gemini models for lesson and remedial lesson generation:
+  - `gemini-2.5-flash` for bulk lesson generation
+  - `gemini-1.5-flash` for fast, targeted remedial lessons
+- Prompts must match the required JSON schema for lessons and remedial lessons
 - Handle JSON parsing errors from AI responses
 - Validate AI-generated content before storing
 
 ### Authentication Implementation
 
-The authentication middleware is currently commented out but can be enabled:
-
-```typescript
-// Uncomment in src/index.ts
-app.use("*", async (c, next) => {
-  const auth = c.req.header("authorization");
-  if (!auth) return c.json({ error: "unauthorized" }, 401);
-  try {
-    const token = auth.replace("Bearer ", "");
-    const decoded = await adminAuth.verifyIdToken(token);
-    c.set("user", decoded);
-    await next();
-  } catch {
-    return c.json({ error: "invalid token" }, 401);
-  }
-});
-```
+Authentication middleware is enabled by default in `src/index.ts`. All endpoints require a valid Firebase token.
 
 ### Error Handling Best Practices
 
@@ -218,6 +253,7 @@ app.use("*", async (c, next) => {
 3. **Not Found**: Return 404 for missing resources
 4. **Server Errors**: Return 500 with generic messages (log details)
 5. **Database Errors**: Handle Firestore exceptions gracefully
+6. **Assessment Submission**: Always validate answer format and handle grading/AI errors gracefully
 
 ### Testing Guidelines
 
@@ -229,6 +265,7 @@ app.use("*", async (c, next) => {
 ### Deployment
 
 #### Docker Deployment
+
 ```bash
 # Build image
 docker build -t skillsphere-backend .
@@ -238,6 +275,7 @@ docker run -p 3000:3000 --env-file .env skillsphere-backend
 ```
 
 #### Environment-Specific Configurations
+
 - **Development**: Use `.env` file with development credentials
 - **Production**: Use environment variables or secure secret management
 - **Testing**: Use separate Firebase project and API keys
@@ -245,18 +283,21 @@ docker run -p 3000:3000 --env-file .env skillsphere-backend
 ## Security Considerations
 
 ### API Security
+
 - Enable authentication middleware for production
 - Validate all input data
 - Use HTTPS in production
 - Implement rate limiting for AI endpoints
 
 ### Environment Security
+
 - Never commit `.env` files or service account keys
 - Use secure secret management in production
 - Rotate API keys regularly
 - Limit Firebase service account permissions
 
 ### Data Security
+
 - Validate data before Firestore operations
 - Sanitize user inputs
 - Implement proper access controls
@@ -265,12 +306,14 @@ docker run -p 3000:3000 --env-file .env skillsphere-backend
 ## Performance Optimization
 
 ### Database Optimization
+
 - Use Firestore indexes for complex queries
 - Implement pagination for large datasets
 - Cache frequently accessed data
 - Optimize query patterns
 
 ### AI Integration Optimization
+
 - Implement request caching for similar prompts
 - Use appropriate temperature settings
 - Handle rate limits gracefully
@@ -279,6 +322,7 @@ docker run -p 3000:3000 --env-file .env skillsphere-backend
 ## Monitoring and Logging
 
 ### Recommended Logging
+
 - API request/response logging
 - Database operation logging
 - AI generation request logging
@@ -286,6 +330,7 @@ docker run -p 3000:3000 --env-file .env skillsphere-backend
 - Performance metrics
 
 ### Health Checks
+
 - Database connectivity
 - AI service availability
 - Environment variable validation
@@ -294,6 +339,7 @@ docker run -p 3000:3000 --env-file .env skillsphere-backend
 ## Future Enhancements
 
 ### Planned Features
+
 1. **User Management**: Complete authentication system
 2. **Progress Tracking**: User lesson completion tracking
 3. **Advanced AI**: More sophisticated content generation
@@ -302,6 +348,7 @@ docker run -p 3000:3000 --env-file .env skillsphere-backend
 6. **Testing**: Comprehensive test suite
 
 ### Scalability Considerations
+
 - Implement horizontal scaling strategies
 - Consider microservices architecture
 - Add load balancing capabilities
@@ -312,11 +359,13 @@ docker run -p 3000:3000 --env-file .env skillsphere-backend
 ### Common Issues
 
 1. **Firebase Connection Issues**
+
    - Verify service account key format
    - Check Firestore permissions
    - Validate project configuration
 
 2. **AI Generation Failures**
+
    - Verify Gemini API key
    - Check API quotas and limits
    - Validate prompt formatting
@@ -327,6 +376,7 @@ docker run -p 3000:3000 --env-file .env skillsphere-backend
    - Verify all dependencies are installed
 
 ### Debug Commands
+
 ```bash
 # Check Bun version
 bun --version
@@ -344,6 +394,7 @@ bun install --dry-run
 ## Contributing Guidelines
 
 ### Code Review Checklist
+
 - [ ] TypeScript strict mode compliance
 - [ ] Proper error handling
 - [ ] Input validation
@@ -353,6 +404,7 @@ bun install --dry-run
 - [ ] Test coverage
 
 ### Pull Request Process
+
 1. Create feature branch from main
 2. Implement changes following guidelines
 3. Add/update tests as needed

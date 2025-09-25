@@ -2,9 +2,13 @@
 
 import { Hono } from "hono";
 import { db } from "../services/firebase";
-import { Lesson, ContentSnippet, UserProgress } from "../types/models";
+import {
+  Lesson,
+  ContentSnippet,
+  UserProgress,
+  UserProfile,
+} from "../types/models";
 import { FieldValue } from "firebase-admin/firestore";
-// ADD THESE IMPORTS for on-the-fly generation
 import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 
@@ -40,7 +44,7 @@ assessmentRoutes.post("/:lessonId/submit", async (c) => {
     const lesson = lessonDoc.data() as Lesson;
     const { questions, passingScore } = lesson.assessment;
 
-    // ... (Grading logic remains the same)
+    // Grading logic to determine the score
     let correctAnswers = 0;
     const weakTags = new Set<string>();
     const answerMap = new Map(questions.map((q) => [q.id, q]));
@@ -56,14 +60,90 @@ assessmentRoutes.post("/:lessonId/submit", async (c) => {
     });
     const score = Math.round((correctAnswers / questions.length) * 100);
 
-    // ... (Update User Progress logic remains the same)
+    // Update the user's progress for this specific lesson attempt
     const progressRef = db
       .collection("userProgress")
       .doc(`${user.uid}_${lessonId}`);
-    // ... (code to set progress)
+    const newAttempt = {
+      timestamp: FieldValue.serverTimestamp(),
+      score,
+      answers,
+    };
+    await progressRef.set(
+      {
+        userId: user.uid,
+        lessonId: lessonId,
+        score: score,
+        status: score >= passingScore ? "completed" : "requires_review",
+        quizAttempts: FieldValue.arrayUnion(newAttempt),
+      },
+      { merge: true }
+    );
 
     if (score >= passingScore) {
-      // ... (Passing logic remains the same)
+      let xpAwarded = 0;
+      const userProfileRef = db.collection("userProfiles").doc(user.uid);
+
+      // Use a single transaction to safely update profile, XP, and streak
+      await db.runTransaction(async (transaction) => {
+        const profileDoc = await transaction.get(userProfileRef);
+        const profile = profileDoc.exists
+          ? (profileDoc.data() as UserProfile)
+          : null;
+
+        // --- 1. STREAK LOGIC ---
+        const today = new Date();
+        const todayStr = today.toISOString().split("T")[0]; // Format: YYYY-MM-DD
+        const yesterday = new Date();
+        yesterday.setDate(today.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+        let newStreak = 1; // Default for a new or reset streak
+        const lastActivity = profile?.lastActivityDate;
+
+        if (lastActivity) {
+          if (lastActivity === yesterdayStr) {
+            // Streak continues
+            newStreak = (profile.currentStreak || 0) + 1;
+          } else if (lastActivity === todayStr) {
+            // Already active today, streak doesn't change
+            newStreak = profile.currentStreak || 1;
+          }
+          // If last activity was before yesterday, streak resets to 1
+        }
+
+        // --- 2. XP LOGIC ---
+        const isFirstCompletion =
+          !profile?.completedLessons?.includes(lessonId);
+        if (isFirstCompletion) {
+          xpAwarded = lesson.xp;
+        }
+
+        // --- 3. DATABASE UPDATE ---
+        if (!profile) {
+          // Create a new profile if one doesn't exist
+          transaction.set(userProfileRef, {
+            userId: user.uid,
+            totalXp: xpAwarded,
+            completedLessons: isFirstCompletion ? [lessonId] : [],
+            currentStreak: newStreak,
+            lastActivityDate: todayStr,
+          });
+        } else {
+          // Update the existing profile
+          const updateData: { [key: string]: any } = {
+            totalXp: FieldValue.increment(xpAwarded),
+            currentStreak: newStreak,
+            lastActivityDate: todayStr,
+          };
+          if (isFirstCompletion) {
+            updateData.completedLessons = FieldValue.arrayUnion(lessonId);
+          }
+          transaction.update(userProfileRef, updateData);
+        }
+      });
+
+      // Find the next lesson in the sequence
       const nextOrder = lesson.order + 1;
       const nextLessonSnapshot = await db
         .collection("lessons")
@@ -71,51 +151,32 @@ assessmentRoutes.post("/:lessonId/submit", async (c) => {
         .where("order", "==", nextOrder)
         .limit(1)
         .get();
-      let nextLessonId: string | null = null;
-      if (!nextLessonSnapshot.empty) {
-        nextLessonId = nextLessonSnapshot.docs[0].id;
-      }
+      const nextLessonId = nextLessonSnapshot.empty
+        ? null
+        : nextLessonSnapshot.docs[0].id;
+
       return c.json({
         status: "passed",
         score: score,
-        xpEarned: lesson.xp,
+        xpEarned: xpAwarded,
         nextLessonId: nextLessonId,
       });
     } else {
-      // --- NEW: AI-POWERED REMEDIAL LESSON GENERATION ---
-
+      // Logic to generate a remedial lesson if the user fails
       let remedialLesson = null;
       if (weakTags.size > 0) {
         const failedConcepts = Array.from(weakTags).join(", ");
-
-        // 1. Create a focused prompt
-        const prompt = `A user failed a quiz on these concepts: "${failedConcepts}". 
-        Generate one short, simple, beginner-level lesson to help them understand.
-        Respond ONLY with a raw JSON object matching this schema:
-        {
-          "title": "A helpful title about ${failedConcepts}",
-          "estimatedMinutes": 3,
-          "difficulty": "beginner",
-          "content": [
-            { "type": "info", "text": "A simple explanation of the first concept." },
-            { "type": "scenario", "text": "A clear example of the concepts in practice." },
-            { "type": "info", "text": "A summary or tip to remember the concepts." }
-          ]
-        }`;
-
-        // 2. Call the AI model
-        const model = google("gemini-1.5-flash"); // Flash is perfect for this fast, targeted task
+        const prompt = `A user failed a quiz on these concepts: "${failedConcepts}". Generate one short, simple, beginner-level lesson to help them understand. Respond ONLY with a raw JSON object matching this schema: { "title": "A helpful title about ${failedConcepts}", "estimatedMinutes": 3, "difficulty": "beginner", "content": [ { "type": "info", "text": "A simple explanation of the first concept." }, { "type": "scenario", "text": "A clear example of the concepts in practice." }, { "type": "info", "text": "A summary or tip to remember the concepts." } ] }`;
+        const model = google("gemini-1.5-flash");
         const { text } = await generateText({ model, prompt });
         remedialLesson = JSON.parse(text.replace(/```json|```/g, "").trim());
       }
 
-      // 3. Return the newly generated lesson to the user
       return c.json({
         status: "requires_review",
         score: score,
-        remedialLesson: remedialLesson, // The app will now receive a full lesson object
+        remedialLesson: remedialLesson,
       });
-      // --- END OF NEW LOGIC ---
     }
   } catch (error) {
     console.error("Error submitting assessment:", error);

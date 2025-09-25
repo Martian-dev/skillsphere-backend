@@ -8,6 +8,7 @@ import topicsRoutes from "./routes/topics";
 import lessonsRoutes from "./routes/lessons";
 import generateRoutes from "./routes/generateLessons";
 import assessmentRoutes from "./routes/assessments";
+import lessonContentRoutes from "./routes/lessonContent";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
@@ -34,6 +35,7 @@ app.route("/topics", topicsRoutes);
 app.route("/lessons", lessonsRoutes);
 app.route("/generate-lessons", generateRoutes);
 app.route("/assessments", assessmentRoutes);
+app.route("/lesson", lessonContentRoutes);
 
 serve({
   fetch: app.fetch,

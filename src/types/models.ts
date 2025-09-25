@@ -49,3 +49,11 @@ export interface ContentSnippet {
     text: string;
   };
 }
+
+export interface UserProfile {
+  userId: string;
+  totalXp: number;
+  completedLessons: string[];
+  currentStreak: number; // e.g., 5 for a 5-day streak
+  lastActivityDate: string; // e.g., "2025-09-25"
+}
